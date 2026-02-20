@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#00629B"          # UCSD Gold (for buttons/sliders)
+backgroundColor = "#FFFFFF"      # UCSD Blue (main background)
+secondaryBackgroundColor = "#f0efe5" # Navy Blue (for sidebar/widgets)
+textColor = "#000000"            # White text for contrast
+font = "sans serif"

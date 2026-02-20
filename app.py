@@ -11,5 +11,5 @@ Welcome to my research portfolio. This site showcases my work in:
 * **Aerodynamics:** NACA Airfoil geometry generation.
 * **Data Science:** [Briefly mention your interests].
 
-**👈 Select a project from the sidebar to begin.**
+**👈 Select a project from the sidebar to begin.
 """)

@@ -33,8 +33,62 @@ st.divider()
 st.subheader("1. Physics Model Selection")
 system_name = st.selectbox(
     "Choose an ODE System",
-    ["Damped Oscillator", "Van der Pol", "Duffing Oscillator", "Lorenz System"]
+    ["Damped Oscillator", "Van der Pol", "Duffing Oscillator"]
 )
+
+col1, col2, col3 = st.columns([1, 2, 1])
+if system_name == "Damped Oscillator":
+
+    with col2:
+        st.markdown(r"""
+                    In a **damped system**, energy dissipation (often due to friction or air resistance) 
+                    causes the amplitude of oscillations to decay over time until the system reaches equilibrium.
+                    """)
+        st.markdown(r"""
+                    $$
+                    \begin{aligned}
+                    \text{Governing Equation:} \quad & m\ddot{x} + c\dot{x} + kx = 0 \\
+                    \text{State-Space Form:} \quad & \dot{x} = v \\
+                    & \dot{v} = \frac{-cv - kx}{m}
+                    \end{aligned}
+                    $$
+                    """)
+elif system_name == "Van der Pol":
+    with col2:
+        st.markdown(r"""
+                    The **Van der Pol oscillator** is a non-linear oscillator with non-conservative damping. 
+                    It settles into a stable **limit cycle**, where the system repeats the same vibration 
+                    pattern regardless of its initial starting point.
+                    """)
+
+        st.markdown(r"""
+                    $$
+                    \begin{aligned}
+                    \text{Governing Equation:} \quad & \ddot{x} - \mu(1 - x^2)\dot{x} + x = 0 \\
+                    \text{State-Space Form:} \quad & \dot{x} = v \\
+                    & \dot{v} = \mu(1 - x^2)v - x
+                    \end{aligned}
+                    $$
+                    """)
+elif system_name == "Duffing Oscillator":
+    with col2:
+        st.markdown(r"""
+                    The **Duffing oscillator** models a spring-mass system with a non-linear restoring force. 
+                    It is frequently used in aerospace research to simulate structural vibrations 
+                    and "snap-through" buckling in thin-walled structures.
+                    """)
+
+        st.markdown(r"""
+                    $$
+                    \begin{aligned}
+                    \text{Governing Equation:} \quad & \ddot{x} + \delta\dot{x} + \alpha x + \beta x^3 = \gamma \cos(\omega t) \\
+                    \text{State-Space Form:} \quad & \dot{x} = v \\
+                    & \dot{v} = \gamma \cos(\omega t) - \delta v - \alpha x - \beta x^3
+                    \end{aligned}
+                    $$
+                    """)
+
+
 
 # ==========================================
 # 2. SOLVER SETTINGS
@@ -45,12 +99,9 @@ col1, col2, col3 = st.columns(3)
 with col1:
     methods = st.multiselect(
         "Numerical Methods (Max 3)",
-        ["Forward Euler", "Runge-Kutta 4 (RK4)"],
+        ["Forward Euler", "Runge-Kutta 4 (RK4)", "Heun's Method"],
         default=["Forward Euler", "Runge-Kutta 4 (RK4)"]
     )
-    if len(methods) > 3:
-        st.warning("Please select a maximum of 3 methods.")
-        st.stop()
 
 with col2:
     h = st.number_input("Step Size (h)", min_value=0.0001, max_value=1.0, value=0.01, format="%.4f")
@@ -67,69 +118,47 @@ init_cond = []
 
 if system_name == "Damped Oscillator":
     c1, c2, c3 = st.columns(3)
-    m = c1.number_input("Mass (m)", value=1.0)
-    c = c2.number_input("Damping (c)", value=0.5)
-    k = c3.number_input("Stiffness (k)", value=10.0)
+    m = c1.number_input("Mass (m)", min_value=0.0001, value=1.0, step=1.0)
+    c = c2.number_input("Damping (c)", value=0.5, step=0.1)
+    k = c3.number_input("Stiffness (k)", value=10.0, step=1.0)
     params = (m, c, k)
     
     ic1, ic2 = st.columns(2)
-    x0 = ic1.number_input("Initial Position (x)", value=1.0)
-    v0 = ic2.number_input("Initial Velocity (v)", value=0.0)
+    x0 = ic1.number_input("Initial Position (x)", value=1.0, step=1.0)
+    v0 = ic2.number_input("Initial Velocity (v)", value=0.0, step=1.0)
     init_cond = [x0, v0]
     
     # Initialize System Object
     system = lib.DampedOscillator(init_cond, params)
 
 elif system_name == "Van der Pol":
-    mu = st.number_input("Non-linearity (μ)", value=2.0)
+    mu = st.number_input("Non-linearity (μ)", value=2.0, step=1.0)
     params = (mu,)
 
     st.caption("Initial Conditions")
     ic1, ic2 = st.columns(2)
-    x0 = ic1.number_input("Position (x)", value=2.0)
-    v0 = ic2.number_input("Velocity (v)", value=0.0)
+    x0 = ic1.number_input("Position (x)", value=2.0, step=1.0)
+    v0 = ic2.number_input("Velocity (v)", value=0.0, step=1.0)
     init_cond = [x0, v0]
 
     system = lib.VanderPol(init_cond, params)
 
 elif system_name == "Duffing Oscillator":
     c1, c2, c3, c4, c5 = st.columns(5)
-    delta = c1.number_input("Damping (δ)", value=0.1)
-    alpha = c2.number_input("Stiffness (α)", value=1.0)
-    beta = c3.number_input("Non-linear (β)", value=5.0)
-    gamma = c4.number_input("Force (γ)", value=0.3)
-    omega = c5.number_input("Freq (ω)", value=1.0)
+    delta = c1.number_input("Damping (δ)", value=0.1, step=0.1)
+    alpha = c2.number_input("Stiffness (α)", value=1.0, step=1.0)
+    beta = c3.number_input("Non-linear (β)", value=5.0, step=1.0)
+    gamma = c4.number_input("Force (γ)", value=0.3, step=0.1)
+    omega = c5.number_input("Freq (ω)", value=1.0, step=1.0)
     params = (delta, alpha, beta, gamma, omega)
 
     st.caption("Initial Conditions")
     ic1, ic2 = st.columns(2)
-    x0 = ic1.number_input("Position (x)", value=0.0)
-    v0 = ic2.number_input("Velocity (v)", value=0.0)
+    x0 = ic1.number_input("Position (x)", value=0.0, step=1.0)
+    v0 = ic2.number_input("Velocity (v)", value=0.0, step=1.0)
     init_cond = [x0, v0]
 
     system = lib.DuffingOscillator(init_cond, params)
-
-elif system_name == "Lorenz System":
-    c1, c2, c3 = st.columns(3)
-    sigma = c1.number_input("Sigma (σ)", value=10.0)
-    rho = c2.number_input("Rho (ρ)", value=28.0)
-    beta_l = c3.number_input("Beta (β)", value=8.0/3.0)
-    params = (sigma, rho, beta_l)
-
-    st.caption("Initial Conditions")
-    ic1, ic2, ic3 = st.columns(3)
-    x0 = ic1.number_input("x", value=1.0)
-    y0 = ic2.number_input("y", value=1.0)
-    z0 = ic3.number_input("z", value=1.0)
-    init_cond = [x0, y0, z0]
-
-    # Assuming you add Lorenz later, otherwise this might fail if not in library.py
-    # Use a try/except or placeholder if not yet implemented
-    try:
-        system = lib.LorenzSystem(init_cond, params)
-    except AttributeError:
-        st.error("Lorenz System not found in library.py yet!")
-        st.stop()
 
 st.divider()
 
@@ -142,8 +171,7 @@ if st.button("Run Benchmark", type="primary"):
     t_eval = np.arange(0, t_max, h)
 
     # reference soln (RK45)
-    with st.spinner("Calculating High-Fidelity Reference..."):
-        ref_sol = sol.RK45(system, (0, t_max), t_eval)  # (steps, states)
+    ref_sol = sol.RK45(system, (0, t_max), t_eval)  # (steps, states)
     
     # 2. Run Numerical Solvers
     results = {}
@@ -160,6 +188,8 @@ if st.button("Run Benchmark", type="primary"):
             solve_func = sol.forward_euler
         elif method == "Runge-Kutta 4 (RK4)":
             solve_func = sol.RK4
+        elif method == "Heun's Method":
+            solve_func = sol.heun_method
         
         # Integration Loop
         for i, t in enumerate(t_eval[:-1]):
@@ -167,11 +197,7 @@ if st.button("Run Benchmark", type="primary"):
             y_history.append(y_curr)
             
         results[method] = np.array(y_history)
-        
-        # Calculate Error (Euclidean distance at each step)
-        # We compare against ref_sol. ref_sol might need transposing depending on your library
-        # Assuming ref_sol is (steps, states)
-        
+
         # Safety check for shape mismatch
         n_steps = len(results[method])
         ref_trimmed = ref_sol[:n_steps]
@@ -196,16 +222,16 @@ if st.button("Run Benchmark", type="primary"):
     st.subheader("4. Benchmark Results")
     
     # Create Layout
-    plot_col, score_col = st.columns([3, 1])
+    plot_col, score_col = st.columns([2, 1])
     
     with plot_col:
         # --- PLOT 1: Solution curve ---
-        fig1, ax1 = plt.subplots(figsize=(10, 4))
+        fig1, ax1 = plt.subplots(figsize=(8, 4))
         ax1.plot(t_eval, ref_sol[:, 0], 'k-', linewidth=3, label="Reference (RK45)", alpha=0.5)
         
-        colors = {"Forward Euler": "blue", "Runge-Kutta 4 (RK4)": "red"}
+        colors = {"Forward Euler": "blue", "Runge-Kutta 4 (RK4)": "red", "Heun's Method": "green"}
         for method in methods:
-            ax1.plot(t_eval, results[method][:, 0], label=method, color=colors.get(method, "green"), linestyle='dashed') # green is default
+            ax1.plot(t_eval, results[method][:, 0], label=method, color=colors.get(method), linestyle='dashed') 
             
         ax1.set_title(f"{system_name}: Position vs Time")
         ax1.set_ylabel("Position")
@@ -215,7 +241,7 @@ if st.button("Run Benchmark", type="primary"):
         st.pyplot(fig1)
         
         # --- PLOT 2: Log Error ---
-        fig2, ax2 = plt.subplots(figsize=(10, 3))
+        fig2, ax2 = plt.subplots(figsize=(8, 3))
         for method in methods:
             ax2.semilogy(t_eval, errors[method] + 1e-16, label=f"{method} Error", color=colors.get(method, "green"))
             

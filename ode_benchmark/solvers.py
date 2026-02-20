@@ -11,14 +11,18 @@ def RK4(ode_instance, y, t, h):
 def forward_euler(ode_instance, y, t, h):
   return y + h * ode_instance.derivs(y, t)
 
+def heun_method(ode_instance, y, t, h):
+  intval = y + h * ode_instance.derivs(y, t)
+  return y + h/2 * (ode_instance.derivs(y, t) + ode_instance.derivs(intval, t+h))
+
 def RK45(ode_instance, t_span, t_eval):
     sol = solve_ivp(
         lambda t, y: ode_instance.derivs(y, t), 
         t_span, 
         ode_instance.y0, 
         t_eval=t_eval,
-        method='RK45',      # High-order adaptive solver
-        rtol=1e-12,         # Extreme precision
+        method='RK45',    
+        rtol=1e-12,         
         atol=1e-12
         )
     return sol.y.T # Returns (steps, states)
