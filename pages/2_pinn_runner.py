@@ -4,11 +4,12 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import tensorflow as tf
 import time
+import pinn_runner.pinn as pn
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="PINN Runner", layout="wide")
 
-st.title("PINN Solver Benchmark Suite")
+st.title("PINN Runner")
 st.markdown("""
 **Solve differential equations using Physics-Informed Neural Networks!**
 Configure your network architecture, select a physical system, and observe the training convergence.
@@ -35,6 +36,8 @@ with col4:
 with col5:
     decayrate = st.slider("Decay Rate (per 1000 steps)", 0.80, 0.99, 0.95)
 
+
+st.divider()
 # ==========================================
 # 2. SYSTEM SELECTION & PARAMETERS
 # ==========================================
@@ -43,7 +46,6 @@ system_name = st.selectbox(
     "Choose a Physical System",
     ["Newton's Law of Cooling", "Simple Harmonic Oscillator"]
 )
-
 
 if system_name == "Newton's Law of Cooling":
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -99,16 +101,16 @@ elif system_name == "Simple Harmonic Oscillator":
         
 
 st.divider()
-
 # ==========================================
 # 3. RUN SIMULATION & TF GRAPH
 # ==========================================
-def build_model(num_layers, num_neurons):
-    model = tf.keras.Sequential()
-    for _ in range(num_layers):
-        model.add(tf.keras.layers.Dense(units=num_neurons, activation="tanh"))
-    model.add(tf.keras.layers.Dense(units=1))
-    return model
+
+st.subheader("Train with...")
+mode = st.segmented_control(
+    "Engine",
+    options=["TensorFlow", "PyTorch", "DeepXDE"],
+    default="TensorFlow"
+)
 
 if st.button("Train PINN", type="primary"):
     tf.keras.backend.clear_session()
@@ -116,89 +118,30 @@ if st.button("Train PINN", type="primary"):
     progress_bar = st.progress(0)
     status_text = st.empty()
     
-    t_train = tf.convert_to_tensor(np.linspace(0, 10, 100).reshape(-1, 1), dtype=tf.float32)
     t_test = np.linspace(0, 10, 500).reshape(-1, 1)
     t_test_tensor = tf.convert_to_tensor(t_test, dtype=tf.float32)
-    
-    model = build_model(layers, neurons)
-
-    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-        initial_learning_rate = learnrate,
-        decay_steps = 1000,
-        decay_rate = decayrate
-    )
-    optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
     
     loss_history = []
     epochs_sampled = []
     losses_sampled = []
-    
-    # Train loop
+    # ------------------------------------------
     if system_name == "Newton's Law of Cooling":
-        t_bc = tf.convert_to_tensor([[0.0]], dtype=tf.float32)
-        T_bc = tf.convert_to_tensor([[T_init]], dtype=tf.float32)
+        params = (T_init, T_surr, k_cool)
+    else:
+        params = (m_mass, k_stiff, x0, v0)
         
-        @tf.function
-        def train_step():
-            with tf.GradientTape() as tape:
-                # PDE Loss
-                with tf.GradientTape() as tape_pde:
-                    tape_pde.watch(t_train)
-                    T_pred = model(t_train)
-                dT_dt = tape_pde.gradient(T_pred, t_train)
-                pde_residual = dT_dt + k_cool * (T_pred - T_surr)
-                loss_pde = tf.reduce_mean(tf.square(pde_residual))
-                
-                # BC Loss
-                T_bc_pred = model(t_bc)
-                loss_bc = tf.reduce_mean(tf.square(T_bc_pred - T_bc))
-                
-                # Total Loss
-                total_loss = w_pde * loss_pde + w_bc * loss_bc
-                
-            grads = tape.gradient(total_loss, model.trainable_variables)
-            optimizer.apply_gradients(zip(grads, model.trainable_variables))
-            return total_loss
-
-    elif system_name == "Simple Harmonic Oscillator":
-        t_bc = tf.convert_to_tensor([[0.0]], dtype=tf.float32)
-        x_bc = tf.convert_to_tensor([[x0]], dtype=tf.float32)
-        v_bc = tf.convert_to_tensor([[v0]], dtype=tf.float32)
-        omega_sq = k_stiff / m_mass
-        
-        @tf.function
-        def train_step():
-            with tf.GradientTape() as tape:
-                # 1. PDE Loss 
-                with tf.GradientTape() as tape1:
-                    tape1.watch(t_train)
-                    with tf.GradientTape() as tape2:
-                        tape2.watch(t_train)
-                        x_pred = model(t_train)
-                    dx_dt = tape2.gradient(x_pred, t_train)
-                d2x_dt2 = tape1.gradient(dx_dt, t_train)
-                
-                pde_residual = d2x_dt2 + omega_sq * x_pred
-                loss_pde = tf.reduce_mean(tf.square(pde_residual))
-                
-                # 2. BC Loss (Position and Velocity)
-                with tf.GradientTape() as tape_bc:
-                    tape_bc.watch(t_bc)
-                    x_bc_pred = model(t_bc)
-                dx_dt_bc = tape_bc.gradient(x_bc_pred, t_bc)
-                
-                loss_bc_pos = tf.reduce_mean(tf.square(x_bc_pred - x_bc))
-                loss_bc_vel = tf.reduce_mean(tf.square(dx_dt_bc - v_bc))
-                loss_bc = loss_bc_pos + loss_bc_vel
-                
-                total_loss = w_pde * loss_pde + w_bc * loss_bc
-                
-            grads = tape.gradient(total_loss, model.trainable_variables)
-            optimizer.apply_gradients(zip(grads, model.trainable_variables))
-            return total_loss
-
-    # --- EXECUTE TRAINING ---
-    # Dummy pass to build variables
+    # ------------------------ TENSORFLOW ------------------------
+    model = pn.build_pinn(layers, neurons)
+    lr_sched = tf.keras.optimizers.schedules.ExponentialDecay(learnrate, 1000, decayrate)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=lr_sched)
+    
+    train_step = pn.get_train_step(system_name, model, optimizer, params, (w_pde, w_bc))
+    # ------------------------ PYTORCH ------------------------
+    pass
+    # ------------------------ DEEPXDE ------------------------
+    
+    
+    # Dummy
     _ = train_step()
     
     start_time = time.time()
@@ -210,20 +153,29 @@ if st.button("Train PINN", type="primary"):
             epochs_sampled.append(epoch)
             losses_sampled.append(loss_val)
             progress_bar.progress(epoch / epochs)
-            status_text.write(f"**Training...** Epoch {epoch}/{epochs} | Loss: `{loss_val}`")
+            status_text.write(f"**Training...** Epoch {epoch}/{epochs} | Loss: `{loss_val:.6e}`")
             
     train_time = time.time() - start_time
-    status_text.success(f"✅ Training Complete in {train_time:.2f} seconds! Final Loss: `{loss_history[-1]}`")
+    status_text.success(f"✅ Training Complete in {train_time:.2f} seconds! Final Loss: `{loss_history[-1]:.6e}`")
+
+
+
+if st.button('Grid Search', type='primary'):
+    # w_pde = 1
+    w_bc_options = [1, 10, 100, 1000]
+    lr_options = [0.001, 0.00001]
+
+    pass
+
 
     # ==========================================
     # 4. VISUALIZATION
     # ==========================================
     st.subheader("3. Training Results")
     
-    # Generate Predictions
     pred_vals = model(t_test_tensor).numpy()
     
-    # Generate Analytical Solutions
+    # Analytical Soln
     if system_name == "Newton's Law of Cooling":
         exact_vals = T_surr + (T_init - T_surr) * np.exp(-k_cool * t_test)
         y_label = "Temperature (T)"
@@ -238,7 +190,7 @@ if st.button("Train PINN", type="primary"):
         fig1, ax1 = plt.subplots(figsize=(8, 5))
         ax1.plot(t_test, exact_vals, 'k-', linewidth=3, label="Analytical Exact", alpha=0.4)
         ax1.plot(t_test, pred_vals, 'r--', linewidth=2, label="PINN Predicted")
-        ax1.set_title(f"PINN - Prediction vs Reality")
+        ax1.set_title("PINN - Prediction vs Reality")
         ax1.set_xlabel("Time (s)")
         ax1.set_ylabel(y_label)
         ax1.legend()
@@ -252,6 +204,6 @@ if st.button("Train PINN", type="primary"):
         ax2.set_title("Loss (Sampled every 1000 Epochs)")
         ax2.set_xlabel("Epochs")
         ax2.set_ylabel("Total Loss (Log Scale)")
-        ax2.set_xticks(epochs_sampled) # Ensure x-ticks align with the bars
+        ax2.set_xticks(epochs_sampled)
         ax2.grid(True, axis='y', alpha=0.3)
         st.pyplot(fig2)

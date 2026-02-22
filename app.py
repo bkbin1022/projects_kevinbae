@@ -1,15 +1,14 @@
 import streamlit as st
 
-st.set_page_config(page_title="UCSD Aero Portfolio", page_icon="🚀")
+st.set_page_config(page_title="Numerical Playground", page_icon="🚀")
 
-st.title("Hi, I'm Kevin 👋")
-st.subheader("Aerospace Engineering Student at UC San Diego")
+st.title("Numerical Playground")
+st.subheader("A playground of Python-driven implentations of all kinds of numerical methods")
 
 st.markdown("""
-Welcome to my research portfolio. This site showcases my work in:
-* **Numerical Methods:** Benchmarking ODE solvers (RK4 vs. Euler).
-* **Aerodynamics:** NACA Airfoil geometry generation.
-* **Data Science:** [Briefly mention your interests].
+This site showcases my work in:
+* **ODE Benchmark:** Benchmark to compare ODE solvers (Euler, RK4, Heun's, ...).
+* **PINN:** Build and train Physics-Informed Neural Networks using Tensorflow, Pytorch or DeepXDE.
 
-**👈 Select a project from the sidebar to begin.
+👈 Select a project from the sidebar to begin.
 """)
