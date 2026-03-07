@@ -4,14 +4,20 @@ from deepxde.backend import tf
 import matplotlib.pyplot as plt
 import numpy as np
 
-# PDE
-def pde(x, y):
-  dy_xx = dde.grad.hessian(y, x) # d^2y/dx^2
-  return dy_xx + np.pi**2 * tf.sin(np.pi * x)
+# ===================================================
+# PDEs OF MODELS
+# ===================================================
+def pde(system_name, x, y, params):
+  if system_name == "Newton's Law of Cooling":
+    T_init, T_surr, k_cool = params
+    dT_t = dde.grad.jacobian(y, x) 
+    return dT_t + k_cool * (y - T_surr)
+  elif system_name == "Simple Harmonic Oscillator":
+    pass
 
 # 1D geometry object of interval [-1, 1]
 # Corresponds to x_train in prev. examples
-geom = dde.geometry.Interval(-1, 1)
+geom = dde.geometry.Interval(0, 10)
 
 # Defines boundary condition
 # Returns True if x is on boundary
@@ -34,20 +40,24 @@ bc = dde.icbc.DirichletBC(geom, boundary_func, boundary)
 data = dde.data.PDE(geom, pde, bc, 16, 2, solution=exact_sol, num_test=100)
 
 # NN Architecture
-layer_size = [1] + [50] * 3 + [1] # 1 input, 3 hidden, 1 output -> [1, 50, 50, 50, 1]
-activation = "tanh"
-initializer = "Glorot uniform" # Weight initialization
-net = dde.nn.FNN(layer_size, activation, initializer)
+def architecture(neurons, layers):
+  layer_size = [1] + [neurons] * layers + [1] # 1 input, 3 hidden, 1 output -> [1, 50, 50, 50, 1]
+  activation = "tanh"
+  initializer = "Glorot uniform" # Weight initialization
+  net = dde.nn.FNN(layer_size, activation, initializer)
+  return locals()
+
 
 # Compile model
-model = dde.Model(data, net)
-model.compile("adam", lr=0.001, metrics=["l2 relative error"])
+#model = dde.Model(data, net)
+#model.compile("adam", lr=0.001, metrics=["l2 relative error"])
 
 # Train model
-losshistory, train_state = model.train(iterations=1000)
+#losshistory, train_state = model.train(iterations=1000)
 
 
 # ==================== PLOT ====================
+"""
 x = geom.uniform_points(30, True)
 y_pred = model.predict(x)
 y_true = exact_sol(x)
@@ -58,3 +68,4 @@ plt.xlabel('x')
 plt.ylabel('PDE residual')
 plt.legend(loc='best')
 plt.show()
+"""

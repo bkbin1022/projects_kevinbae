@@ -9,7 +9,6 @@ def build_pinn(num_layers, num_neurons):
     return model
 
 def get_train_step(system_name, model, optimizer, params, weights):
-    """Returns a tf.function specific to the chosen physics model."""
     w_pde, w_bc = weights
     t_train = tf.cast(tf.linspace(0, 10, 100)[:, None], tf.float32)
     t_bc = tf.constant([[0.0]], dtype=tf.float32)
