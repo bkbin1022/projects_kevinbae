@@ -43,12 +43,11 @@ st.divider()
 st.subheader("2. Physics Model Selection")
 system_name = st.selectbox(
     "Choose a Physical System",
-    ["Newton's Law of Cooling", "Simple Harmonic Oscillator"]
+    ["Newton's Law of Cooling", "Simple Harmonic Oscillator", "Custom"]
 )
 
 col2_1, col2_2, col2_3 = st.columns([1, 2, 1])
 if system_name == "Newton's Law of Cooling":
-
     with col2_2:
         st.markdown(r"""
         **Newton's Law of Cooling** models the heat transfer between an object and its environment.
@@ -100,14 +99,24 @@ elif system_name == "Simple Harmonic Oscillator":
             w_pde = st.number_input("PDE Weight", min_value=1.0, value=1.0, step=1.0)
             w_bc = st.number_input("B.C. Weight", min_value=1.0, value=1.0, step=1.0)
 
+elif system_name == "Custom":
+    pass
+
 st.divider()
 
-# ==========================================
-# 3. ADDITIONAL FACTORS
-# ==========================================
-st.subheader("3. Additional Factors")
+# DEFAULT PINN 
+t_test = np.linspace(0, 10, 500).reshape(-1, 1)
+t_test_tensor = tf.convert_to_tensor(t_test, dtype=tf.float32)
+model = pn.build_pinn(layers, neurons)
+lr_sched = tf.keras.optimizers.schedules.ExponentialDecay(learnrate, 1000, decayrate)
+optimizer = tf.keras.optimizers.Adam(learning_rate=lr_sched)
 
-st.markdown("Tune hyperparameters (Loss weight, learning rate, neuron count) for better PINNs!")
+# ==========================================
+# 3. ADDITIONAL FEATURES
+# ==========================================
+st.subheader("3. Additional Features")
+
+st.markdown("**1. Tune hyperparameters (Loss weight, learning rate, neuron count) for better PINNs!**")
 if st.button("Tune Hyperparameters", type="primary"):
     # 1. WEIGHTS
     results_w = {}
@@ -118,13 +127,11 @@ if st.button("Tune Hyperparameters", type="primary"):
             lr_sched = tf.keras.optimizers.schedules.ExponentialDecay(learnrate, 1000, decayrate)
             optimizer = tf.keras.optimizers.Adam(learning_rate=lr_sched)
             train_step = pn.get_train_step(system_name, model, optimizer, params, (pde_weight, 1.0)) # bc_weight fixed to 1.0
-
             for epoch in range(500):
                 loss = float(train_step()) 
             results_w[pde_weight] = loss
             best_weight = min(results_w, key=results_w.get)
-        st.markdown(f"{results_w}")
-        st.markdown(f"Best weight: {best_weight}")
+
     # 2. INITIAL LEARNRATE
     results_lr = {}
     with st.spinner("Optimizing initial learning rate..."):
@@ -138,8 +145,7 @@ if st.button("Tune Hyperparameters", type="primary"):
                 loss = float(train_step()) 
             results_lr[lr] = loss
             best_lr = min(results_lr, key=results_lr.get)
-        st.markdown(f"{results_lr}")
-        st.markdown(f"Best lr: {best_lr}")
+
     # 3. NEURONS
     results_nrns = {}
     with st.spinner("Optimizing neuron count..."):
@@ -153,16 +159,30 @@ if st.button("Tune Hyperparameters", type="primary"):
                 loss = float(train_step()) 
             results_nrns[nrns] = loss
             best_nrns = min(results_nrns, key=results_nrns.get)
-        st.markdown(f"{results_nrns}")
-        st.markdown(f"Best neurons: {best_nrns}")
-    df_results = pd.DataFrame({
-        "PDE Weight": results_w.keys(),
-        "Final Loss": [f"{v:,.2f}" for v in results_w.values()]
-        })
 
-st.dataframe(df_results, hide_index=True)
+        st.markdown(f"Best Weight: {best_weight}")
+        st.markdown(f"Best Learning Rate: {best_lr}")
+        st.markdown(f"Best Neuron Count: {best_nrns}")
 
-st.markdown("Change Optimizer. Default: Adam")
+lr_sched = tf.keras.optimizers.schedules.ExponentialDecay(learnrate, 1000, decayrate)
+
+st.markdown("**2. Change Optimizer**")
+with st.container(border=True):
+    opt = st.radio(
+        "Select your optimizer",
+        ["Adam (Recommended)", "RMSprop", "SGD"],
+        captions=[
+            "All-around performance for quickly navigating the physics-informed models.",
+            "Excels in balancing the scales of PDE and boundary losses..",
+            "Basic, often slow to converge for PINNs, and highly sensitive to tuned learning rates.",
+        ],
+    )
+if opt == "Adam (Recommended)":
+    optimizer = tf.keras.optimizers.Adam(learning_rate=lr_sched)
+elif opt == "RMSprop":
+    optimizer = tf.keras.optimizers.RMSprop(learning_rate=lr_sched)
+elif opt == "SGD":
+    optimizer = tf.keras.optimizers.SGD(learning_rate=lr_sched)
 
 st.divider()
 
@@ -188,11 +208,6 @@ if st.button("Train PINN", type="primary"):
 
     # Reset NN
     tf.keras.backend.clear_session()
-    t_test = np.linspace(0, 10, 500).reshape(-1, 1)
-    t_test_tensor = tf.convert_to_tensor(t_test, dtype=tf.float32)
-    model = pn.build_pinn(layers, neurons)
-    lr_sched = tf.keras.optimizers.schedules.ExponentialDecay(learnrate, 1000, decayrate)
-    optimizer = tf.keras.optimizers.Adam(learning_rate=lr_sched)
 
     train_step = pn.get_train_step(system_name, model, optimizer, params, (w_pde, w_bc))
 
