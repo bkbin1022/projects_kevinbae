@@ -188,6 +188,43 @@ def build_surrogate_model():
     
     return model
 
+
+def parse_airfoil_file(uploaded_file):
+    # Load coordinates, ignoring the first line (header)
+    # This works for both .txt and .dat
+    try:
+        data = np.loadtxt(uploaded_file, skiprows=1)
+    except:
+        return None
+
+    # Find the Leading Edge (point closest to x=0)
+    le_idx = np.argmin(data[:, 0])
+    
+    # Split into Upper and Lower surfaces
+    upper = data[:le_idx+1]
+    lower = data[le_idx:]
+    
+    # Interpolate to find thickness and camber at 100 points
+    x_range = np.linspace(0, 1, 100)
+    y_upper = np.interp(x_range, upper[::-1, 0], upper[::-1, 1])
+    y_lower = np.interp(x_range, lower[:, 0], lower[:, 1])
+    
+    # Calculate Geometric Properties
+    thickness = y_upper - y_lower
+    camber_line = (y_upper + y_lower) / 2
+    
+    # Extract NACA 4-digit parameters
+    max_camber = np.max(camber_line) * 100
+    max_camber_pos = x_range[np.argmax(camber_line)] * 10
+    max_thickness = np.max(thickness) * 100
+    
+    return {
+        "camber": round(max_camber), 
+        "camber_pos": round(max_camber_pos), 
+        "thickness": round(max_thickness),
+        "coords": (x_range, y_upper, y_lower)
+    }
+
 # ========================= MODEL BUILD AND TRAIN ===============================
 if __name__ == "__main__":
     # 1. Prepare the data
@@ -209,3 +246,75 @@ if __name__ == "__main__":
     model.save("aerodynamic_surrogate.keras")
     print("Model saved successfully!")
 # ================================================================================
+
+
+import os
+import subprocess
+
+def get_xfoil_cl_cd(filepath, alpha, reynolds):
+    polar_file = "temp_single_polar.txt"
+    if os.path.exists(polar_file):
+        os.remove(polar_file)
+
+    # XFOIL Command Sequence for a SINGLE alpha
+    commands = [
+        "PLOP", "G F",         # Disable graphics
+        "",                    
+        f"LOAD {filepath}",    # Load coordinates
+        "CustomAirfoil",       # Handle naming prompt
+        "PANE",                # Smooth panels
+        "OPER",                
+        f"Visc {reynolds}",    # Set Reynolds number
+        "ITER 200",            # High iterations for stubborn boundary layers
+        "PACC",                # Start recording to file
+        polar_file,            
+        "",                    
+        f"ALFA {alpha}",       # <--- Solve for just this one Angle of Attack
+        "",                    
+        "QUIT"                 
+    ]
+    
+    command_string = "\n".join(commands) + "\n"
+
+    # Execute XFOIL
+    try:
+        process = subprocess.Popen(
+            ['xvfb-run', 'xfoil'], 
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        # 15 seconds is plenty for a single alpha calculation
+        process.communicate(input=command_string, timeout=15) 
+        
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate() 
+        print(f"TIMEOUT: XFOIL failed to converge for {filepath} at alpha={alpha}.")
+        return None, None
+
+    # Parse the resulting text file (No Pandas needed)
+    cl, cd = None, None
+    if os.path.exists(polar_file):
+        with open(polar_file, 'r') as f:
+            lines = f.readlines()
+            
+            # XFOIL headers take up about 12 lines. We search for the actual data.
+            for line in lines:
+                parts = line.strip().split()
+                # A valid data row has at least 3 numbers and doesn't contain header text
+                if len(parts) >= 3 and "alpha" not in line and "---" not in line:
+                    try:
+                        # Ensure we are looking at the row for our requested alpha
+                        row_alpha = float(parts[0])
+                        if abs(row_alpha - alpha) < 0.1: 
+                            cl = float(parts[1])
+                            cd = float(parts[2])
+                            break # We found it, stop searching
+                    except ValueError:
+                        pass # Skip lines that can't be converted to floats
+                        
+        #os.remove(polar_file) # Clean up
+        
+    return cl, cd
