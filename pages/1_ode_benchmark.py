@@ -10,8 +10,8 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 try:
-    from ode_benchmark import library as lib
-    from ode_benchmark import solvers as sol
+    from projects.ode_benchmark import library as lib
+    from projects.ode_benchmark import solvers as sol
 except ImportError:
     st.error("⚠️ Engine not found! Make sure your 'engine' folder contains __init__.py, library.py, and solvers.py")
     st.stop()

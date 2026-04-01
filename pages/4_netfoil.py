@@ -3,182 +3,148 @@ import numpy as np
 import tensorflow as tf
 import pandas as pd
 import matplotlib.pyplot as plt
-import netfoil.library as nf
+import os
+import projects.netfoil.library as nf
 
-df = pd.read_csv("airfoil_dataset.csv", dtype={'NACA': str})
-
-# --- PAGE CONFIG ---
-st.set_page_config(page_title="Netfoil", page_icon="✈️", layout="centered")
-
-# --- LOAD MODEL & DATA (Cached for speed) ---
+# --- ASSET LOADING ---
 @st.cache_resource
 def load_assets():
     try:
         model = tf.keras.models.load_model("aerodynamic_surrogate.keras")
         x_mean = np.load("x_mean.npy")
         x_std = np.load("x_std.npy")
+        # Load output normalization if you implemented the CD fix
+        # y_mean = np.load("y_mean.npy")
+        # y_std = np.load("y_std.npy")
         return model, x_mean, x_std
     except Exception as e:
-        st.error(f"Error loading files. Did you run your training script first? Details: {e}")
+        st.error(f"Asset Error: {e}")
         return None, None, None
 
 model, x_mean, x_std = load_assets()
+df = pd.read_csv("airfoil_dataset.csv", dtype={'NACA': str})
 
+# --- UI SETUP ---
+st.set_page_config(page_title="Netfoil")
 st.title("Neural Airfoil Predictor")
-st.markdown("""
-Predict Lift (CL) and Drag (CD) coefficients instantly using a Deep Neural Network trained on XFoil data.
-""")
-st.divider()
 
-if model is not None:
-    st.subheader("Input Method")
-    input_mode = st.radio("Choose Input:", ["Manual NACA Code", "Upload Coordinates (.dat/.txt)"])
+# --- INITIALIZE VARIABLES (Prevents NameErrors) ---
+naca_input = "2412" 
+uploaded_file = None
+camber, camber_pos, thickness = 0.02, 0.4, 0.12
 
-    if input_mode == "Manual NACA Code":
-        naca_input = st.text_input("NACA 4-Digit", value="2412")
-        # Feature Engineering (as you already have it)
+# --- INPUT SECTION ---
+st.subheader("1. Geometry Configuration")
+input_mode = st.radio("Input Method:", ["Manual NACA Code", "Upload Coordinates (.dat/.txt)"])
+
+if input_mode == "Manual NACA Code":
+    naca_input = st.text_input("NACA 4-Digit", value="2412", max_chars=4)
+    if len(naca_input) == 4 and naca_input.isdigit():
         camber = float(naca_input[0]) / 100.0
         camber_pos = float(naca_input[1]) / 10.0
         thickness = float(naca_input[2:4]) / 100.0
+    with st.expander("View Supported NACA Range"):
+        st.write("""
+        **The Neural Network was trained on the following NACA 4-Digit configurations:**
+        * **Symmetrical:** 0006 to 0024
+        * **Low Camber:** 2408 to 2424
+        * **High Camber:** 4410 to 4421 and 6410 to 6421
+        * **Reynolds Numbers:** 100k, 500k, 1M, 5M, 10M
+        """)
+    
+        # Optionally show a sorted list of unique NACAs from your actual CSV
+        unique_nacas = sorted(df['NACA'].unique())
+        st.caption(f"Total unique airfoils in database: {len(unique_nacas)}")
+        st.write(", ".join(unique_nacas))
+else:
+    uploaded_file = st.file_uploader("Upload Airfoil", type=['dat', 'txt'])
+    if uploaded_file:
+        geom = nf.parse_airfoil_file(uploaded_file)
+        if geom:
+            camber, camber_pos, thickness = geom['camber']/100, geom['camber_pos']/10, geom['thickness']/100
+            naca_input = f"{geom['camber']}{geom['camber_pos']}{geom['thickness']:02d}"
+            st.line_chart(np.array([geom['coords'][1], geom['coords'][2]]).T)
 
-    else:
-        uploaded_file = st.file_uploader("Upload Airfoil File", type=['dat', 'txt'])
-        if uploaded_file:
-            geom = nf.parse_airfoil_file(uploaded_file)
-            if geom:
-                camber, camber_pos, thickness = geom['camber']/100, geom['camber_pos']/10, geom['thickness']/100
-                st.success(f"Detected: NACA {geom['camber']}{geom['camber_pos']}{geom['thickness']}")
-                
-                # Show the shape
-                st.line_chart(np.array([geom['coords'][1], geom['coords'][2]]).T)
-            else:
-                st.error("Invalid file format.")
-                st.stop()
-        else:
-            st.info("Please upload a .dat or .txt file.")
-            st.stop()
+st.subheader("2. Flight Conditions")
+col_a, col_b = st.columns(2)
+with col_a:
+    alpha = st.slider("Alpha (deg)", -5.0, 15.0, 5.0, 1.0)
+with col_b:
+    reynolds = st.select_slider("Reynolds Number", 
+                                options=[1e5, 5e5, 1e6, 5e6, 1e7], 
+                                value=1e6, format_func=lambda x: f"{x:,.0f}")
 
-        
-    alpha = st.slider("Angle of Attack (deg)", min_value=-5.0, max_value=15.0, value=5.0, step=1.0)
-
-    reynolds = st.select_slider(
-        "Reynolds Number", 
-        options=[100000.0, 500000.0, 1000000.0, 5000000.0, 10000000.0],
-        value=1000000.0,
-        format_func=lambda x: f"{x:,}"
-    )
-    st.divider()
-
-    raw_input = np.array([[camber, camber_pos, thickness, reynolds, alpha]])
-
-    if st.button('Predict', type='primary'):
-
-        # ============= KERAS PREDICTION ============= #
+# --- PREDICTION LOGIC ---
+if st.button('Predict', type='primary'):
+        # --- 1. ALWAYS DO THE NEURAL NETWORK PREDICTION ---
+        raw_input = np.array([[camber, camber_pos, thickness, reynolds, alpha]])
         scaled_input = (raw_input - x_mean) / x_std
         predictions = model.predict(scaled_input, verbose=0)
         cl_final = predictions[0][0]
         cd_final = predictions[0][1]
-
-        # ============ XFOIL PREDICTION ============ #
-        import os
-
-        if uploaded_file is not None:
-            # 1. Create an ABSOLUTE path so XFOIL cannot get lost
-            current_dir = os.getcwd()
-            safe_temp_name = os.path.join(current_dir, "temp_input_geometry.txt")
-            
-            with open(safe_temp_name, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-                
-            with st.spinner("Running XFOIL simulation..."):
-                # Run the function using the absolute path
-                cl_xfoil, cd_xfoil = nf.get_xfoil_cl_cd(safe_temp_name, alpha, reynolds)
-            
-            # Clean up
-            if os.path.exists(safe_temp_name):
-                os.remove(safe_temp_name)
-                
-            # 2. Surface the results OR the exact error in the UI
-            if cl_xfoil is not None:
-                st.success(f"XFOIL Converged! CL: {cl_xfoil:.4f}, CD: {cd_xfoil:.5f}")
-            else:
-                st.error("❌ XFOIL Failed to Execute.")
-                st.info("Please check your Codespaces terminal for the printed error log to see if it's a file format issue or an xvfb-run issue.")
-                
-        st.markdown(cl_xfoil)
-        st.markdown(cd_xfoil)
-  
         
-        st.subheader("Results")
+        # Display NN Results
+        st.subheader(f"Results for NACA {naca_input}")
         result_col1, result_col2 = st.columns(2)
         with result_col1:
             st.metric(label="Lift Coefficient (CL)", value=f"{cl_final:.4f}")
         with result_col2:
             st.metric(label="Drag Coefficient (CD)", value=f"{cd_final:.5f}")
+        
         st.divider()
 
+        # --- 2. CONDITIONAL XFOIL COMPARISON ---
+        if input_mode == "Upload Coordinates (.dat/.txt)":
+            st.warning("⚠️ XFOIL comparison not supported for uploaded airfoils!")
+        else:
+            # Only run this if we are in Manual NACA mode
 
-        st.subheader(f"Analysis")
-        analysis_col1, analysis_col2 = st.columns(2)
+            xfoil_data = df.loc[
+                (df['NACA'] == naca_input) & (df['Re'] == reynolds) & (df['alpha'] == alpha)
+            ]
 
-        lift_error = np.abs(cl_final - cl_xfoil)/cl_xfoil * 100
-        drag_error = np.abs(cd_final - cd_xfoil)/cd_xfoil * 100
-        with analysis_col1:
-            st.metric(label="Error (CL)", value=f"{lift_error:.2f}%") 
-            st.markdown(f"XFOIL value: {cl_xfoil:.4f}")
-        with analysis_col2:
-            st.metric(label="Error (CD)", value=f"{drag_error:.2f}%")
-            st.markdown(f"XFOIL value: {cd_xfoil:.5f}")
+            if not xfoil_data.empty:
+                cl_xfoil = xfoil_data['CL'].item()
+                cd_xfoil = xfoil_data['CD'].item()
 
+                st.subheader("Analysis")
+                analysis_col1, analysis_col2 = st.columns(2)
 
-        st.divider()
-
-    if st.button("Generate Performance Plots", type="primary"):
-        alpha_sweep = np.arange(-5, 16, 1.0)
-        
-        # Repeat the geometry/Re for all 21 rows
-        batch_input = np.zeros((len(alpha_sweep), 5))
-        batch_input[:, 0] = camber
-        batch_input[:, 1] = camber_pos
-        batch_input[:, 2] = thickness
-        batch_input[:, 3] = reynolds
-        batch_input[:, 4] = alpha_sweep
-        
-        scaled_batch = (batch_input - x_mean) / x_std
-        
-        nn_results = model.predict(scaled_batch, verbose=0)
-        nn_cl = nn_results[:, 0]
-        nn_cd = nn_results[:, 1]
-        
-        xfoil_data = df.loc[
-            (df['NACA'] == naca_input) & (df['Re'] == reynolds)
-        ].sort_values('alpha')
+                lift_error = np.abs(cl_final - cl_xfoil)/cl_xfoil * 100
+                drag_error = np.abs(cd_final - cd_xfoil)/cd_xfoil * 100
                 
-        fig, ax = plt.subplots(1, 2, figsize=(12, 5))
-        
-        # Lift Curve (CL vs Alpha)
-        ax[0].plot(alpha_sweep, nn_cl, 'r--', label='Netfoil')
-        ax[0].plot(xfoil_data['alpha'], xfoil_data['CL'], 'ko', label='XFOIL')
-        ax[0].set_xlabel("Alpha (deg)")
-        ax[0].set_ylabel("CL")
-        ax[0].set_title("Lift Curve")
-        ax[0].legend()
-        ax[0].grid(True)
-        
-        # Drag Polar (CL vs CD)
-        ax[1].plot(nn_cd, nn_cl, 'r--', label='Netfoil')
-        ax[1].plot(xfoil_data['CD'], xfoil_data['CL'], 'ko', label='XFOIL')
-        ax[1].set_xlabel("CD")
-        ax[1].set_ylabel("CL")
-        ax[1].set_title("Drag Polar")
-        ax[1].grid(True)
-        
-        st.pyplot(fig)
+                with analysis_col1:
+                    st.metric(label="Error (CL)", value=f"{lift_error:.2f}%") 
+                    st.markdown(f"XFOIL value: {cl_xfoil:.4f}")
+                with analysis_col2:
+                    st.metric(label="Error (CD)", value=f"{drag_error:.2f}%")
+                    st.markdown(f"XFOIL value: {cd_xfoil:.5f}")
+            else:
+                st.info("No exact match found in dataset for these flight conditions.")
 
+# --- PLOTTING SECTION ---
 
+        alpha_sweep = np.arange(-5, 16, 1.0)
+        batch_in = np.zeros((len(alpha_sweep), 5))
+        batch_in[:, 0], batch_in[:, 1], batch_in[:, 2] = camber, camber_pos, thickness
+        batch_in[:, 3], batch_in[:, 4] = reynolds, alpha_sweep
 
-# TASK: FEATURE OF IMPORTING AIRFOILS
-#       
-#       MORE INPUTS AND OUTPUTS
-#       SEPARATE XFOIL RUNNING CODE FROM library.py TO ANOTHER FILE
-#       DRAG IS NOT BEING CAPTURED WELL, ENHANCE MODEL
+        nn_sweep = model.predict((batch_in - x_mean) / x_std, verbose=0)
+        
+        if input_mode == "Manual NACA Code":
+            csv_curve = df[(df['NACA'] == naca_input) & (df['Re'] == reynolds)].sort_values('alpha')
+
+            fig, ax = plt.subplots(1, 2, figsize=(10, 4))
+            ax[0].plot(alpha_sweep, nn_sweep[:, 0], 'r--', label='Netfoil')
+            ax[0].scatter(csv_curve['alpha'], csv_curve['CL'], color='black', label='XFOIL')
+            ax[0].set_title("Cl v Alpha"); ax[0].legend()
+            ax[0].set_xlabel("Alpha α")
+            ax[0].set_ylabel("Lift Coefficient Cl")
+
+            ax[1].plot(nn_sweep[:, 1], nn_sweep[:, 0], 'r--', label='Netfoil')
+            ax[1].scatter(csv_curve['CD'], csv_curve['CL'], color='black', label='XFOIL')
+            ax[1].set_title("Cl v Cd")
+            ax[0].set_xlabel("Drag Coefficient Cd")
+            ax[0].set_ylabel("Lift Coefficient Cl")
+            
+            st.pyplot(fig)

@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import tensorflow as tf
 import time
-import pinn_runner.pinn as pn
+import projects.pinn_runner.pinn as pn
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="PINN Runner", layout="wide")
