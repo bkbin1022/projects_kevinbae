@@ -102,50 +102,9 @@ def generate_naca():
     return list(dict.fromkeys(naca_list))[:60]
 
 
-# ========================= RUN XFOIL AND SAVE AS CSV ===============================
-"""
-if __name__ == "__main__":
-    print("Running XFOIL simulation...")
-    naca_pack = generate_naca()
-    reynolds_list = [1e5, 5*1e5, 1e6, 5*1e6, 1e7]
-    all_data_frames = []
-
-    total = len(naca_pack) * len(reynolds_list)
-    count = 0
-
-    for code in naca_pack:
-        for reynold in reynolds_list:
-            count += 1
-            print(f"[{count}/{total}] NACA {code} | Re {reynold:,.0f}...", end=" ", flush=True)
-            
-            try:
-                results_df = generate_xfoil_data(naca_code=code, alpha_start=-5, alpha_end=15, alpha_step=1, reynolds=reynold)
-                
-                if not results_df.empty:
-                    # Double check that these columns exist for the NN
-                    results_df['NACA'] = code
-                    results_df['Re'] = reynold
-                    all_data_frames.append(results_df)
-                    print("Done.")
-                else:
-                    print("Failed (No Convergence).")
-            except Exception as e:
-                print(f"Error: {e}")
-
-    if all_data_frames:
-        master_df = pd.concat(all_data_frames, ignore_index=True)
-        master_df.to_csv("airfoil_dataset.csv", index=False)
-        print(f"\nSuccess! Saved {len(master_df)} rows to airfoil_dataset.csv")
-
-    # delete .bl file
-    import glob
-    for f in glob.glob("*.bl"):
-        os.remove(f)
-"""
-# ===================================================================================
-
 def create_aerospace_dataset(csv_file, batch_size=32):
     df = pd.read_csv(csv_file)
+    df['CD_log'] = np.log10(df['CD'] + 1e-9)
     
     # Extract physics from NACA 
     naca_str = df['NACA'].astype(str).str.zfill(4)  # ensure NACA is 4 digits
@@ -155,11 +114,9 @@ def create_aerospace_dataset(csv_file, batch_size=32):
     
 
     inputs = df[['camber', 'camber_pos', 'thickness', 'Re', 'alpha']].values.astype(np.float32)
-    outputs = df[['CL', 'CD']].values.astype(np.float32)
+    outputs = df[['CL', 'CD_log']].values.astype(np.float32)
     
-    # NORMALIZATION (Crucial for Neural Networks)
-    # Neural networks struggle when Re is 1,000,000 but thickness is 0.12. 
-    # We scale all inputs to have a mean of 0 and std of 1.
+    # NORMALIZATION 
     x_mean = inputs.mean(axis=0)
     x_std = inputs.std(axis=0) + 1e-8
     inputs_scaled = (inputs - x_mean) / x_std
@@ -225,8 +182,11 @@ def parse_airfoil_file(uploaded_file):
         "coords": (x_range, y_upper, y_lower)
     }
 
+
 # ========================= MODEL BUILD AND TRAIN ===============================
+
 if __name__ == "__main__":
+    df = pd.read_csv("airfoil_dataset.csv")
     # 1. Prepare the data
     print("Loading data...")
     train_dataset, x_mean, x_std = create_aerospace_dataset("airfoil_dataset.csv", batch_size=32)
@@ -247,74 +207,3 @@ if __name__ == "__main__":
     print("Model saved successfully!")
 # ================================================================================
 
-
-import os
-import subprocess
-
-def get_xfoil_cl_cd(filepath, alpha, reynolds):
-    polar_file = "temp_single_polar.txt"
-    if os.path.exists(polar_file):
-        os.remove(polar_file)
-
-    # XFOIL Command Sequence for a SINGLE alpha
-    commands = [
-        "PLOP", "G F",         # Disable graphics
-        "",                    
-        f"LOAD {filepath}",    # Load coordinates
-        "CustomAirfoil",       # Handle naming prompt
-        "PANE",                # Smooth panels
-        "OPER",                
-        f"Visc {reynolds}",    # Set Reynolds number
-        "ITER 200",            # High iterations for stubborn boundary layers
-        "PACC",                # Start recording to file
-        polar_file,            
-        "",                    
-        f"ALFA {alpha}",       # <--- Solve for just this one Angle of Attack
-        "",                    
-        "QUIT"                 
-    ]
-    
-    command_string = "\n".join(commands) + "\n"
-
-    # Execute XFOIL
-    try:
-        process = subprocess.Popen(
-            ['xvfb-run', 'xfoil'], 
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        # 15 seconds is plenty for a single alpha calculation
-        process.communicate(input=command_string, timeout=15) 
-        
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.communicate() 
-        print(f"TIMEOUT: XFOIL failed to converge for {filepath} at alpha={alpha}.")
-        return None, None
-
-    # Parse the resulting text file (No Pandas needed)
-    cl, cd = None, None
-    if os.path.exists(polar_file):
-        with open(polar_file, 'r') as f:
-            lines = f.readlines()
-            
-            # XFOIL headers take up about 12 lines. We search for the actual data.
-            for line in lines:
-                parts = line.strip().split()
-                # A valid data row has at least 3 numbers and doesn't contain header text
-                if len(parts) >= 3 and "alpha" not in line and "---" not in line:
-                    try:
-                        # Ensure we are looking at the row for our requested alpha
-                        row_alpha = float(parts[0])
-                        if abs(row_alpha - alpha) < 0.1: 
-                            cl = float(parts[1])
-                            cd = float(parts[2])
-                            break # We found it, stop searching
-                    except ValueError:
-                        pass # Skip lines that can't be converted to floats
-                        
-        #os.remove(polar_file) # Clean up
-        
-    return cl, cd

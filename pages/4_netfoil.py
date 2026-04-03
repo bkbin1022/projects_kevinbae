@@ -81,7 +81,8 @@ if st.button('Predict', type='primary'):
         scaled_input = (raw_input - x_mean) / x_std
         predictions = model.predict(scaled_input, verbose=0)
         cl_final = predictions[0][0]
-        cd_final = predictions[0][1]
+        cd_log = predictions[0][1]
+        cd_final = 10**cd_log
         
         # Display NN Results
         st.subheader(f"Results for NACA {naca_input}")
@@ -129,22 +130,36 @@ if st.button('Predict', type='primary'):
         batch_in[:, 0], batch_in[:, 1], batch_in[:, 2] = camber, camber_pos, thickness
         batch_in[:, 3], batch_in[:, 4] = reynolds, alpha_sweep
 
+        # 1. Get predictions from model
         nn_sweep = model.predict((batch_in - x_mean) / x_std, verbose=0)
         
+        # 2. SEPARATE AND TRANSFORM: Convert log10(CD) back to linear CD
+        nn_cl = nn_sweep[:, 0]
+        nn_cd_linear = 10**(nn_sweep[:, 1]) 
+
         if input_mode == "Manual NACA Code":
+            # Get ground truth from CSV
             csv_curve = df[(df['NACA'] == naca_input) & (df['Re'] == reynolds)].sort_values('alpha')
 
             fig, ax = plt.subplots(1, 2, figsize=(10, 4))
-            ax[0].plot(alpha_sweep, nn_sweep[:, 0], 'r--', label='Netfoil')
-            ax[0].scatter(csv_curve['alpha'], csv_curve['CL'], color='black', label='XFOIL')
-            ax[0].set_title("Cl v Alpha"); ax[0].legend()
-            ax[0].set_xlabel("Alpha α")
-            ax[0].set_ylabel("Lift Coefficient Cl")
-
-            ax[1].plot(nn_sweep[:, 1], nn_sweep[:, 0], 'r--', label='Netfoil')
-            ax[1].scatter(csv_curve['CD'], csv_curve['CL'], color='black', label='XFOIL')
-            ax[1].set_title("Cl v Cd")
-            ax[0].set_xlabel("Drag Coefficient Cd")
-            ax[0].set_ylabel("Lift Coefficient Cl")
             
+            # --- Left Plot: Cl v Alpha ---
+            ax[0].plot(alpha_sweep, nn_cl, 'r--', label='Netfoil')
+            ax[0].scatter(csv_curve['alpha'], csv_curve['CL'], color='black', label='XFOIL')
+            ax[0].set_title("Lift Curve (Cl v α)")
+            ax[0].set_xlabel("Angle of Attack (α)") # Fixed label
+            ax[0].set_ylabel("Lift Coefficient (Cl)")
+            ax[0].legend()
+            ax[0].grid(True)
+
+            # --- Right Plot: Cl v Cd (Drag Polar) ---
+            # Use the TRANSFORMED linear drag here
+            ax[1].plot(nn_cd_linear, nn_cl, 'r--', label='Netfoil') 
+            ax[1].scatter(csv_curve['CD'], csv_curve['CL'], color='black', label='XFOIL')
+            ax[1].set_title("Drag Polar (Cl v Cd)")
+            ax[1].set_xlabel("Drag Coefficient (Cd)") # Fixed label
+            ax[1].set_ylabel("Lift Coefficient (Cl)")
+            ax[1].grid(True)
+            
+            plt.tight_layout() # Prevents labels from overlapping
             st.pyplot(fig)
