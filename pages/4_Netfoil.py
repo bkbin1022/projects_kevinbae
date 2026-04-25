@@ -3,7 +3,6 @@ import numpy as np
 import tensorflow as tf
 import pandas as pd
 import matplotlib.pyplot as plt
-import os
 import projects.netfoil.library as nf
 
 # --- ASSET LOADING ---
@@ -22,7 +21,7 @@ def load_assets():
         return None, None, None
 
 model, x_mean, x_std = load_assets()
-df = pd.read_csv("airfoil_dataset.csv", dtype={'NACA': str})
+df = pd.read_csv("datafiles/airfoil_dataset.csv", dtype={'NACA': str})
 
 # --- UI SETUP ---
 st.set_page_config(page_title="Netfoil")
