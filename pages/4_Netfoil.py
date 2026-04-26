@@ -5,16 +5,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import projects.netfoil.library as nf
 
-# --- ASSET LOADING ---
 @st.cache_resource
 def load_assets():
     try:
-        model = tf.keras.models.load_model("aerodynamic_surrogate.keras")
-        x_mean = np.load("x_mean.npy")
-        x_std = np.load("x_std.npy")
-        # Load output normalization if you implemented the CD fix
-        # y_mean = np.load("y_mean.npy")
-        # y_std = np.load("y_std.npy")
+        model = tf.keras.models.load_model("datafiles/aerodynamic_surrogate.keras")
+        x_mean = np.load("datafiles/x_mean.npy")
+        x_std = np.load("datafiles/x_std.npy")
         return model, x_mean, x_std
     except Exception as e:
         st.error(f"Asset Error: {e}")

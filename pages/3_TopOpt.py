@@ -18,22 +18,15 @@ Configure your topology parameters and see the result.
 
 st.divider()
 #--------------------------------------------------------------
-st.subheader("1. Choose Airfoil (NACA only)")
-airfoil = st.text_input("NACA 4-Digit", value="2412", max_chars=4)
-if len(airfoil) == 4 and airfoil.isdigit():
-        camber = float(airfoil[0]) / 100.0
-        camber_pos = float(airfoil[1]) / 10.0
-        thickness = float(airfoil[2:4]) / 100.0
-with st.expander("View Supported NACA Range"):
-        st.write("""
-        **Below are supported NACA airfoils. Cp value of Re=5e6.**
-        * **Symmetrical:** 0006 to 0024
-        * **Low Camber:** 2408 to 2424
-        * **High Camber:** 4410 to 4421 and 6410 to 6421
-        """)
-        nacas = ['2412']
-        st.caption(f"Total unique airfoils in database: {len(nacas)}")
-        st.write(", ".join(nacas))
+st.subheader("1. Choose Airfoil (NACA only) & Alpha")
+cc1, cc2, cc3 = st.columns(3)
+nacas = ["0012", "2412", "4412", "2415", "4415"]
+
+with cc1:
+	stairfoil = st.selectbox("NACA Airfoils", nacas)
+	stalpha = st.slider("Alpha", min_value=-4, max_value=12, value=5)
+with cc2:
+	st.markdown(f'<p style="font-size:24px;">NACA {stairfoil}<br>Angle of Attack: {stalpha}<br>Re=5,000,000</p>', unsafe_allow_html=True)
 
 st.divider()
 #--------------------------------------------------------------
@@ -183,10 +176,10 @@ def main(nelx,nely,volfrac,penal,rmin,ft):
 	df = pd.read_csv('datafiles/cp_dataset.csv')
     
     # 2. Select the row you want to optimize for (e.g., the first row)
-	row = df.iloc[0] 
+	row = df.loc[(df['NACA'] == int(stairfoil)) & (df['alpha'] == stalpha)]
     
     # Extract the 200 values into a numpy array
-	cp_raw = np.array([row[f'cp_{k}'] for k in range(200)])
+	cp_raw = row.filter(regex='cp_').values[0]
     
     # 3. Find the Leading Edge (stagnation point is the max pressure)
 	le_idx = np.argmax(cp_raw)
